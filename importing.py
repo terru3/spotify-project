@@ -16,13 +16,18 @@ auth = ("neo4j","jatdatares")
 driver = GraphDatabase.driver(uri = uri, auth = auth)
 print(driver.verify_connectivity())
 
-# Create uniqueness constraints
-# query = "CREATE CONSTRAINT FOR (t:Track) REQUIRE t.song_id IS UNIQUE"
-# info = driver.session().run(query)
-# response = driver.session().run("CALL db.constraints").data()
-# print(response)
+Create uniqueness constraints
+query = "CREATE CONSTRAINT FOR (t:Track) REQUIRE t.song_id IS UNIQUE"
+info = driver.session().run(query)
+response = driver.session().run("CALL db.constraints").data()
+print(response)
 
-# ^ ran already
+query2 = "CREATE CONSTRAINT FOR (p:Playlist) REQUIRE p.playlist_id IS UNIQUE"
+info = driver.session().run(query2)
+response = driver.session().run("CALL db.constraints").data()
+print(response)
+
+# ^ constraints have been ran already
 
 # Import tracks
 def create_tracks(tx, song_id, track_name, artist_name, pos, track_uri,
@@ -54,45 +59,43 @@ print("Success", flush=True)
 
 # Import playlists
 def create_playlists(tx, name, collaborative, playlist_id, modified_at, num_tracks,
-                 num_albums, num_followers, num_edits, duration_ms, num_artists,
-                 description) -> None:
+                 num_albums, num_followers, num_edits, duration_ms, num_artists) -> None:
 
     query = """
             MERGE (p:Playlist {name: $name, collaborative: $collaborative,
             playlist_id: $playlist_id, modified_at: $modified_at,
             num_tracks: $num_tracks, num_albums: $num_albums,
-            num_followers: $num_followers, num_edits: $num edits,
-            duration_ms: $duration_ms, num_artists: $num_artists,
-            description: $description})
+            num_followers: $num_followers, num_edits: $num_edits,
+            duration_ms: $duration_ms, num_artists: $num_artists})
             """
     tx.run(query, name=name, collaborative=collaborative, playlist_id=playlist_id,
            modified_at=modified_at, num_tracks=num_tracks, num_albums=num_albums,
            num_followers=num_followers, num_edits=num_edits, duration_ms=duration_ms,
-           num_artists=num_artists, description=description)
+           num_artists=num_artists)
 
 for i in tqdm(playlists.itertuples(), desc = "Deploying Playlist Nodes"):
     (_, name, collaborative, playlist_id, modified_at, num_tracks, num_albums,
-    num_followers, num_edits, duration_ms, num_artists, description) = i
+    num_followers, num_edits, duration_ms, num_artists, __) = i
 
     driver.session().write_transaction(create_playlists, name,
                                        collaborative, playlist_id, modified_at,
                                        num_tracks, num_albums, num_followers,
-                                       num_edits, duration_ms, num_artists, description)
+                                       num_edits, duration_ms, num_artists)
 
 print("Success", flush=True)
 
 
-# def create_relationships(tx, song_id, playlist_id) -> None:
-#
-#     query = """
-#             MATCH (t:Track {song_id: $song_id})
-#             MATCH (p:Playlist {playlist_id: $playlist_id})
-#             MERGE (t)-[r:IN]->(p)
-#             """
-#     tx.run(query, song_id = song_id, playlist_id = playlist_id)
-#
-# for i in tqdm(relationships.itertuples(), desc = "Deploying Relationships"):
-#     (_, song_id, playlist_id) = i
-#     driver.session().write_transaction(create_relationships, song_id, playlist_id)
-#
-# print("Success", flush=True)
+def create_relationships(tx, song_id, playlist_id) -> None:
+
+    query = """
+            MATCH (t:Track {song_id: $song_id})
+            MATCH (p:Playlist {playlist_id: $playlist_id})
+            MERGE (t)-[r:IN]->(p)
+            """
+    tx.run(query, song_id = song_id, playlist_id = playlist_id)
+
+for i in tqdm(relationships.itertuples(), desc = "Deploying Relationships"):
+    (_, song_id, playlist_id) = i
+    driver.session().write_transaction(create_relationships, song_id, playlist_id)
+
+print("Success", flush=True)
