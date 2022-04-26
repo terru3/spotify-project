@@ -1,96 +1,98 @@
 import pandas as pd
-import json
 
-def get_playlist_data(i):
-    data_slice = json.load(
-        open(f'/Users/Terru/Desktop/UCLA/DataRes/spotify_million_playlist_dataset/data/mpd.slice.{i}-{i + 999}.json'))
-    # change directory as needed
-    df_slice = pd.json_normalize(data_slice["playlists"])
-    df_slice = df_slice.drop(columns=["tracks"])
-    return df_slice
+from tqdm import tqdm
+from neo4j import GraphDatabase
 
-def get_track_data(i):
-    data_slice = json.load(
-        open(f'/Users/Terru/Desktop/UCLA/DataRes/spotify_million_playlist_dataset/data/mpd.slice.{i}-{i + 999}.json'))
-    # change directory as needed
-    df_slice = pd.json_normalize(data_slice["playlists"], record_path="tracks", meta=["pid"])
-    df_slice = df_slice.rename(columns={"pid": "playlist_id"})
-    return df_slice
+from preprocessing import tracks, playlists, relationships
 
-# Track dataframe. Note when we import our tracks as nodes we do not need to include
-# the "playlist_id" column as a property——that info is only extracted for convenience
-# for creating the relationship dataframe
-track_slices = [get_track_data(i) for i in range(0, 2000, 1000)]
-# just change 2000 to 1000000 to retrieve all songs
-tracks_raw = pd.concat(track_slices, ignore_index=True)
+print(tracks.head())
+print(playlists.head())
+print(relationships.head())
 
-# Now we combine duplicates to form a dataframe which contains only unique tracks.
-# For every track, its "playlist_id" column contains a list of all playlists it is
-# contained in:
-tracks = tracks_raw.groupby(["track_name", "artist_name"]).agg({"pos": "first",
-                                                                "track_uri": "first",
-                                                                "artist_uri": "first",
-                                                                "album_uri": "first",
-                                                                "duration_ms": "first",
-                                                                "album_name": "first",
-                                                                "playlist_id": list})
-# "first" means the column is included but remains unchanged
-tracks = tracks.reset_index().reset_index()
-# reset once first to pop out the "track_name" and "artist_name" multiindex as columns,
-# then again to use the new index sequence [0, 1,....] as our "song_id" identifier
-tracks = tracks.rename(columns={"index": "song_id"})
-print(tracks)
+uri = "bolt://localhost:7687"
 
-# Example of a few entries——we can see that "A Sky Full of Stars - Hardwell Remix" appears
-# in 4 playlists
-print(tracks.loc[1063:1067])
+auth = ("neo4j","jatdatares")
 
-print(tracks["track_name"].value_counts())
-print(tracks["artist_name"].value_counts())
+driver = GraphDatabase.driver(uri = uri, auth = auth)
+print(driver.verify_connectivity())
 
-# Playlist dataframe
-playlist_slices = [get_playlist_data(i) for i in range(0, 2000, 1000)]
-# just change 2000 to 1000000 to retrieve all data
-playlists = pd.concat(playlist_slices, ignore_index=True)
-playlists = playlists.rename(columns={"pid": "playlist_id"})
-print(playlists)
-print(playlists.info())
+# Create uniqueness constraints
+# query = "CREATE CONSTRAINT FOR (t:Track) REQUIRE t.song_id IS UNIQUE"
+# info = driver.session().run(query)
+# response = driver.session().run("CALL db.constraints").data()
+# print(response)
 
-# Relationship dataframe
+# ^ ran already
 
-# Now, all that's left to do is extract the song_id and playlist info into a new
-# "relationship" dataframe. For every song, take its song_id and iterate over its
-# playlist_id to create as many rows as needed.
+# Import tracks
+def create_tracks(tx, song_id, track_name, artist_name, pos, track_uri,
+                 artist_uri, album_uri, duration_ms, album_name) -> None:
 
-# E.g. for "A Sky Full of Stars - Hardwell Remix" we should create
-# 4 rows of [1066, 150], [1066, 330], [1066, 1712], and [1066, 1810]
-# this can be done easily using pd.explode()
+    query = """
+            MERGE (t:Track {song_id: $song_id, track_name: $track_name,
+            artist_name: $artist_name, pos: $pos, track_uri: $track_uri,
+            artist_uri: $artist_uri, album_uri: $album_uri,
+            duration_ms: $duration_ms, album_name: $album_name})
+            """
+    tx.run(query, song_id=song_id, track_name=track_name,
+           artist_name=artist_name, pos=pos, track_uri=track_uri,
+            artist_uri=artist_uri, album_uri=album_uri,
+           duration_ms=duration_ms, album_name=album_name)
 
-relationships = tracks[["song_id", "playlist_id"]]
-relationships = relationships.explode("playlist_id", ignore_index=True)
-print(relationships)
-print(relationships[relationships["song_id"] == 1066])
-print(relationships.info())
+for i in tqdm(tracks.itertuples(), desc = "Deploying Track Nodes"):
+    (_, song_id, track_name, artist_name, pos, track_uri,
+    artist_uri, album_uri, duration_ms, album_name, __) = i
 
-# To import relationships into Neo4j, now we all have to do is use this dataframe——
-# the song_id and playlist_id columns represent our links (e.g. song_id = 3 and
-# playlist_id = 0 means the 4th song is in the 1st playlist)
+    driver.session().write_transaction(create_tracks, song_id,
+                                       track_name, artist_name, pos, track_uri,
+                                        artist_uri, album_uri, duration_ms,
+                                       album_name)
 
-# However, this is possibly not done. We may still want to do some cleaning to remove
-# metadata for memory reasons——maybe playlist descriptions are unnecessary
+print("Success", flush=True)
 
 
 
+# Import playlists
+def create_playlists(tx, name, collaborative, playlist_id, modified_at, num_tracks,
+                 num_albums, num_followers, num_edits, duration_ms, num_artists,
+                 description) -> None:
+
+    query = """
+            MERGE (p:Playlist {name: $name, collaborative: $collaborative,
+            playlist_id: $playlist_id, modified_at: $modified_at,
+            num_tracks: $num_tracks, num_albums: $num_albums,
+            num_followers: $num_followers, num_edits: $num edits,
+            duration_ms: $duration_ms, num_artists: $num_artists,
+            description: $description})
+            """
+    tx.run(query, name=name, collaborative=collaborative, playlist_id=playlist_id,
+           modified_at=modified_at, num_tracks=num_tracks, num_albums=num_albums,
+           num_followers=num_followers, num_edits=num_edits, duration_ms=duration_ms,
+           num_artists=num_artists, description=description)
+
+for i in tqdm(playlists.itertuples(), desc = "Deploying Playlist Nodes"):
+    (_, name, collaborative, playlist_id, modified_at, num_tracks, num_albums,
+    num_followers, num_edits, duration_ms, num_artists, description) = i
+
+    driver.session().write_transaction(create_playlists, name,
+                                       collaborative, playlist_id, modified_at,
+                                       num_tracks, num_albums, num_followers,
+                                       num_edits, duration_ms, num_artists, description)
+
+print("Success", flush=True)
 
 
-
-# –––––Explanation to other ppl, no need to read this really––––– #
-
-# Note our method of detecting duplicates used a combination of "track_name" and "artist_name".
-# This is different from using "track_uri"! That catches less duplicates because track_uri
-# is a unique ID that Spotify assigns to every track, but often times the  same song is
-# released in different areas, with slightly different lengths and versions. Our code will
-# catch this whereas track_uri will incorrectly (for our purposes) interpret the tracks as
-# unique. With that being said, it is still not entirely foolproof——we did not incorporate
-# regular expression matching to check for similarly named song versions, etc.
-
+# def create_relationships(tx, song_id, playlist_id) -> None:
+#
+#     query = """
+#             MATCH (t:Track {song_id: $song_id})
+#             MATCH (p:Playlist {playlist_id: $playlist_id})
+#             MERGE (t)-[r:IN]->(p)
+#             """
+#     tx.run(query, song_id = song_id, playlist_id = playlist_id)
+#
+# for i in tqdm(relationships.itertuples(), desc = "Deploying Relationships"):
+#     (_, song_id, playlist_id) = i
+#     driver.session().write_transaction(create_relationships, song_id, playlist_id)
+#
+# print("Success", flush=True)
