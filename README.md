@@ -1,3 +1,7 @@
+# Spotify Million Playlist Analysis
+
+This project aims to integrate Python and Neo4j to perform data preprocessing and PageRank analysis on a million user-curated Spotify playlists. For more information on the dataset, please see below.
+
 # The Million Playlist Dataset
 (Documentation updated Aug 5, 2020)
 
