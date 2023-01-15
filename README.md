@@ -1,7 +1,7 @@
 # Spotify Million Playlist Analysis
 
 This project aims to integrate Python and Neo4j to perform data preprocessing and PageRank analysis on the Million Playlist Dataset, consisting of 
-1,000,000 user-curated playlists on Spotify. For more information on the dataset, please see below.
+1,000,000 user-curated playlists on Spotify. Feel free to take a look around at the cool visualizations, mini dataframe snippets, and underlying Python scripts. For more information on the dataset, please see below.
 
 *(Documentation updated Aug 5, 2020)*
 ## What's in the Million Playlist Dataset (MPD)
